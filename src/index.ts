@@ -1,24 +1,26 @@
 import { configDotenv } from "dotenv";
 
-import { playtomic, chat } from "@/client";
+import { getUser } from "./methods/users";
 
-import { getMe } from "./methods/users";
+import { playtomic } from "./client/playtomic";
+import { playtomicChat } from "./client/playtomicChat";
 import { sendMessage } from "./methods/chat";
 
 configDotenv();
 
 export const main = async () => {
 
-  const credentials = {
+  const params = {
     email: process.env.EMAIL!,
     password: process.env.PASSWORD!,
   };
 
-  const playtomicClient = playtomic(credentials);
-  const chatClient = chat(playtomicClient);
+  const http = playtomic(params);
+  const rtdb = playtomicChat(http);
 
-  const me = await getMe(playtomicClient);
-  const id = await sendMessage("", "", chatClient);
+  const threadId = "u:10902581:5564611";
+
+  await sendMessage(threadId, "hello", rtdb);
 
 };
 

@@ -19,5 +19,16 @@
     "dotenv": "^17.2.1",
     "firebase": "^12.1.0",
     "jsonwebtoken": "^9.0.2"
-  }
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "import": "./dist/index.js",
+      "default": "./dist/index.cjs"
+    }
+  },
+  "types": "./dist/index.d.ts"
 }

@@ -6,14 +6,17 @@ var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require
   throw new Error('Dynamic require of "' + x + '" is not supported');
 });
 
-// src/client/base.ts
+// src/index.ts
+import { configDotenv } from "dotenv";
+
+// src/client/playtomic.ts
 import axios from "axios";
 
-// src/token-store/index.ts
+// src/lib/token-store/index.ts
 import fs2 from "fs";
 import path2 from "path";
 
-// src/utils/dir.ts
+// src/lib/token-store/utils.ts
 import fs from "fs";
 import path from "path";
 var getProjectRoot = () => {
@@ -27,7 +30,7 @@ var getProjectRoot = () => {
   return process.cwd();
 };
 
-// src/token-store/index.ts
+// src/lib/token-store/index.ts
 var TokenStore = class {
   constructor(opts = {}) {
     const directoryName = opts.directoryName ?? ".playtomic";
@@ -144,166 +147,163 @@ var isoHasTZ = (str) => {
   return /[zZ]|[+\-]\d{2}:?\d{2}$/.test(str);
 };
 
-// src/client/base.ts
-var BasePlaytomicClient = class {
-  constructor(options) {
-    this.currentTokens = null;
-    this.refreshPromise = null;
-    if (!options.email || !options.password)
-      throw new Error("invalid email or password");
-    const baseURL = options.baseUrl || "https://api.playtomic.io";
-    const headers = { "Content-Type": "application/json" };
-    this.email = options.email;
-    this.password = options.password;
-    this.tokenStore = new TokenStore({
-      directoryName: ".playtomic"
-    });
-    this.axiosInstance = axios.create({ baseURL, headers });
-    this.authInstance = axios.create({ baseURL, headers });
-    this.attachInterceptors();
-  }
-  attachInterceptors() {
-    this.authInstance.interceptors.request.use(async (config) => {
-      const token = await this.ensureValidAccessToken();
-      if (token && config.headers) {
-        config.headers["Authorization"] = `Bearer ${token}`;
+// src/client/playtomic.ts
+function playtomic(opts) {
+  if (!opts.email || !opts.password)
+    throw new Error("missing params");
+  const baseURL = opts.baseURL ?? "https://api.playtomic.io";
+  const headers = {};
+  const tokenStore = new TokenStore({ directoryName: ".playtomic" });
+  let currentTokens = null;
+  const inflight = {};
+  const raw = axios.create({ baseURL, headers });
+  const auth = axios.create({ baseURL, headers });
+  const singleFlight = (k, fn) => {
+    if (!inflight[k])
+      inflight[k] = fn().finally(() => inflight[k] = null);
+    return inflight[k];
+  };
+  const isExpired = (isoWithoutZ) => Date.now() + 3e4 >= new Date(isoWithoutZ + suffixZ(isoWithoutZ)).getTime();
+  const login = async () => (await raw.post("/v3/auth/login", {
+    email: opts.email,
+    password: opts.password
+  })).data;
+  const refresh = async (rt) => (await raw.post("/v3/auth/token", { refresh_token: rt })).data;
+  const ensureAccessToken = async () => {
+    if (currentTokens && !isExpired(currentTokens.access_token_expiration))
+      return currentTokens.access_token;
+    if (!currentTokens)
+      currentTokens = tokenStore.get("auth", opts.email) ?? null;
+    if (currentTokens && isExpired(currentTokens.access_token_expiration)) {
+      if (!isExpired(currentTokens.refresh_token_expiration)) {
+        try {
+          currentTokens = await singleFlight(
+            "refresh",
+            () => refresh(currentTokens.refresh_token)
+          );
+          tokenStore.set("auth", opts.email, currentTokens);
+        } catch {
+          currentTokens = null;
+        }
+      } else
+        currentTokens = null;
+    }
+    if (!currentTokens) {
+      currentTokens = await singleFlight("login", () => login());
+      tokenStore.set("auth", opts.email, currentTokens);
+    }
+    return currentTokens?.access_token ?? null;
+  };
+  auth.interceptors.request.use(async (cfg) => {
+    const token = await ensureAccessToken();
+    if (token)
+      cfg.headers.Authorization = `Bearer ${token}`;
+    return cfg;
+  });
+  const get = async (url, cfg) => (await auth.get(url, cfg)).data;
+  const post = async (url, body, cfg) => (await auth.post(url, body, cfg)).data;
+  const patch = async (url, body, cfg) => (await auth.patch(url, body, cfg)).data;
+  return {
+    get,
+    post,
+    patch,
+    logout: async () => {
+      currentTokens = null;
+      tokenStore.set("auth", opts.email, null);
+    }
+  };
+}
+
+// src/client/playtomicChat.ts
+import { AxiosError } from "axios";
+import { initializeApp, getApps } from "firebase/app";
+import {
+  getAuth,
+  signInWithCustomToken,
+  setPersistence,
+  inMemoryPersistence
+} from "firebase/auth";
+import { getDatabase } from "firebase/database";
+var playtomicChat = (api) => {
+  const app = getApps().length ? getApps()[0] : initializeApp({
+    apiKey: "AIzaSyAU3tWfb04J6AyouierS5NI0mkc_Xbwi40",
+    projectId: "fir-playtomic",
+    authDomain: "fir-playtomic.firebaseapp.com",
+    databaseURL: "https://fir-playtomic.firebaseio.com",
+    storageBucket: "fir-playtomic.appspot.com"
+  });
+  const auth = getAuth(app);
+  const database = getDatabase(app);
+  let initialized = null;
+  const getChatCustomToken = async () => {
+    try {
+      const data = await api.post("/v1/chats/tokens", {
+        user_id: "me"
+      });
+      if (!data?.token)
+        throw new Error("no chat token");
+      return data.token;
+    } catch (e) {
+      if (e instanceof AxiosError) {
+        console.error(e.request);
       }
-      return config;
-    });
-  }
-  async ensureValidAccessToken() {
-    console.log("[ensureValidAccessToken] Start");
-    if (this.currentTokens && !this.isExpired(this.currentTokens.access_token_expiration)) {
-      console.log("[ensureValidAccessToken] Using existing valid access token");
-      return this.currentTokens.access_token;
+      console.error(`failed to get custom chat token ${e.message}`);
+      throw "";
     }
-    if (!this.currentTokens) {
-      console.log("[ensureValidAccessToken] No current tokens, fetching from store");
-      this.currentTokens = this.tokenStore.get("auth", this.email);
-    }
-    if (this.currentTokens && this.isExpired(this.currentTokens.access_token_expiration)) {
-      console.log("[ensureValidAccessToken] Access token expired");
-      if (!this.isExpired(this.currentTokens.refresh_token_expiration)) {
-        console.log("[ensureValidAccessToken] Refresh token valid, refreshing...");
-        await this.runSingleRefresh(async () => {
-          console.log("[ensureValidAccessToken] Inside runSingleRefresh");
-          const refreshed = await this.refresh(this.currentTokens.refresh_token);
-          console.log("[ensureValidAccessToken] Refresh successful");
-          this.currentTokens = refreshed;
-          this.tokenStore.set("auth", this.email, refreshed);
-          return refreshed;
-        });
-      } else {
-        console.log("[ensureValidAccessToken] Refresh token expired, clearing tokens");
-        this.currentTokens = null;
-      }
-    }
-    if (!this.currentTokens) {
-      console.log("[ensureValidAccessToken] Logging in to get new tokens");
-      const loggedIn = await this.login();
-      console.log("[ensureValidAccessToken] Login successful");
-      this.currentTokens = loggedIn;
-      this.tokenStore.set("auth", this.email, loggedIn);
-    }
-    console.log("[ensureValidAccessToken] Returning access token");
-    return this.currentTokens?.access_token ?? null;
-  }
-  async runSingleRefresh(fn) {
-    if (!this.refreshPromise) {
-      this.refreshPromise = fn().catch(() => null).finally(() => {
-        this.refreshPromise = null;
+  };
+  const ensureSignedIn = async () => {
+    if (auth.currentUser)
+      return;
+    if (!initialized) {
+      initialized = (async () => {
+        await setPersistence(auth, inMemoryPersistence);
+        let token = await getChatCustomToken();
+        try {
+          await signInWithCustomToken(auth, token);
+        } catch (e) {
+          token = await getChatCustomToken();
+          await signInWithCustomToken(auth, token);
+        }
+      })().finally(() => {
+        initialized = null;
       });
     }
-    return this.refreshPromise;
-  }
-  async refresh(refreshToken) {
-    try {
-      const { data } = await this.axiosInstance.post(
-        "/v3/auth/token",
-        { refresh_token: refreshToken }
-      );
-      return data;
-    } catch {
-      throw new Error("failed to refresh token");
-    }
-  }
-  async login() {
-    try {
-      const { data } = await this.axiosInstance.post(
-        "/v3/auth/login",
-        { email: this.email, password: this.password }
-      );
-      return data;
-    } catch (e) {
-      console.error(e);
-      throw new Error("failed to login with provided credentials");
-    }
-  }
-  isExpired(isoWithoutZ) {
-    const expiresAt = new Date(isoWithoutZ + suffixZ(isoWithoutZ)).getTime();
-    const now = Date.now();
-    const skew = 30 * 1e3;
-    return now + skew >= expiresAt;
-  }
+    await initialized;
+  };
+  return { ensureSignedIn, auth, database };
 };
 
-// src/client/index.ts
-var PlaytomicClient = class extends BasePlaytomicClient {
-  /**
-   * retreives the current user object
-   * @returns
-   */
-  async getMe() {
-    try {
-      const response = await this.authInstance.get("/v2/users/me");
-      if (!response.data)
-        throw new Error("failed to get me");
-      return response.data;
-    } catch (e) {
-      console.error(e);
-      throw new Error("failed to get profile");
-    }
-  }
-  /**
-   * upserts the current client user
-   */
-  async updateMe(me) {
-    try {
-      const response = await this.authInstance.patch("/v2/users/me", me);
-      if (!response.data)
-        throw new Error("me not found");
-      return response.data;
-    } catch (e) {
-      throw new Error("failed to get me");
-    }
-  }
-  /**
-   * gets a user by their id
-   */
-  async getUser(id) {
-    try {
-      const response = await this.authInstance.get(`/v2/users/${id}`);
-      if (!response.data)
-        return null;
-      return response.data;
-    } catch (e) {
-      throw new Error("failed to get user");
-    }
-  }
+// src/methods/chat.ts
+import { push, ref, serverTimestamp, set } from "firebase/database";
+var sendMessage = async (threadId, text, client) => {
+  await client.ensureSignedIn();
+  const uid = client.auth.currentUser?.uid;
+  if (!uid)
+    throw new Error("no authorized user");
+  const messagesRef = ref(client.database, `chat/messages/${threadId}`);
+  const newMessageRef = push(messagesRef);
+  const message = {
+    data: { text, type: "text" },
+    date: serverTimestamp(),
+    user_id: uid
+  };
+  await set(newMessageRef, message);
+  if (!newMessageRef.key)
+    throw new Error("failed to get message id");
+  return newMessageRef.key;
 };
 
 // src/index.ts
-import { configDotenv } from "dotenv";
 configDotenv();
-var client = new PlaytomicClient({
-  email: process.env.EMAIL,
-  password: process.env.PASSWORD
-});
 var main = async () => {
-  const me = await client.getMe();
-  console.log(me);
-  const someone = await client.getUser("6790013");
-  console.log("someone");
+  const params = {
+    email: process.env.EMAIL,
+    password: process.env.PASSWORD
+  };
+  const http = playtomic(params);
+  const rtdb = playtomicChat(http);
+  const threadId = "u:10902581:5564611";
+  await sendMessage(threadId, "hello", rtdb);
 };
 if (__require.main === module) {
   main();

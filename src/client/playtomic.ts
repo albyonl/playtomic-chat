@@ -11,8 +11,10 @@ export function playtomic(opts: {
   password: string;
 }): Playtomic {
 
+  if(!opts.email || !opts.password) throw new Error("missing params");
+
   const baseURL = opts.baseURL ?? "https://api.playtomic.io";
-  const headers = { "Content-Type": "application/json" };
+  const headers = {};
 
   const tokenStore = new TokenStore({ directoryName: ".playtomic" });
   let currentTokens: any | null = null;
@@ -74,8 +76,10 @@ export function playtomic(opts: {
 
   const get = async <T>(url: string, cfg?: any) =>
     (await auth.get<T>(url, cfg)).data;
+
   const post = async <T>(url: string, body?: any, cfg?: any) =>
     (await auth.post<T>(url, body, cfg)).data;
+  
   const patch = async <T>(url: string, body?: any, cfg?: any) =>
     (await auth.patch<T>(url, body, cfg)).data;
 

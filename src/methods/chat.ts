@@ -6,6 +6,7 @@ export const sendMessage = async (
   text: string,
   client: Chat
 ): Promise<string> => {
+  
   await client.ensureSignedIn();
 
   const uid = client.auth.currentUser?.uid;
