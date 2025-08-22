@@ -1,0 +1,23 @@
+{
+  "name": "playtomic",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup src/index.ts --format cjs,esm --dts && node dist/index.cjs",
+    "start": "node dist/index.cjs"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^20.0.0",
+    "tsup": "^6.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.1",
+    "firebase": "^12.1.0",
+    "jsonwebtoken": "^9.0.2"
+  }
+}
