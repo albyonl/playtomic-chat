@@ -1,12 +1,12 @@
 import fs from "fs";
 import path from "path";
 
-import { getProjectRoot } from "./utils";
+import { getProjectRoot } from "./utils.js";
 
 import {
   FsAdapter,
   TokenStoreOptions,
-} from "./types";
+} from "./types.js";
 
 export class TokenStore {
   private readonly tokensDir: string;

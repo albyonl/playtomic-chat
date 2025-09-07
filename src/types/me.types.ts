@@ -1,4 +1,4 @@
-import { User, UserStatus } from "./user.types";
+import { User, UserStatus } from "./user.types.js";
 
 export interface Me extends User {
   is_deleted: boolean;

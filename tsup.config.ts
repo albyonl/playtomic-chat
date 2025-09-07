@@ -9,7 +9,6 @@ export default defineConfig({
   clean: true,
   outDir: 'dist',
   esbuildOptions(options) {
-    // Add path alias for @ -> src
     options.alias = {
       ...(options.alias || {}),
       '@': path.resolve(process.cwd(), 'src')

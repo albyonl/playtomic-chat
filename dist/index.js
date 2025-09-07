@@ -1,15 +1,4 @@
-var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
-  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
-}) : x)(function(x) {
-  if (typeof require !== "undefined")
-    return require.apply(this, arguments);
-  throw new Error('Dynamic require of "' + x + '" is not supported');
-});
-
-// src/index.ts
-import { configDotenv } from "dotenv";
-
-// src/client/playtomic.ts
+// src/client/httpClient.ts
 import axios from "axios";
 
 // src/lib/token-store/index.ts
@@ -147,8 +136,8 @@ var isoHasTZ = (str) => {
   return /[zZ]|[+\-]\d{2}:?\d{2}$/.test(str);
 };
 
-// src/client/playtomic.ts
-function playtomic(opts) {
+// src/client/httpClient.ts
+var createHttpClient = (opts) => {
   if (!opts.email || !opts.password)
     throw new Error("missing params");
   const baseURL = opts.baseURL ?? "https://api.playtomic.io";
@@ -200,7 +189,11 @@ function playtomic(opts) {
       cfg.headers.Authorization = `Bearer ${token}`;
     return cfg;
   });
-  const get = async (url, cfg) => (await auth.get(url, cfg)).data;
+  const get = async (url, cfg) => {
+    const res = await auth.get(url, cfg);
+    console.log(res.config.params);
+    return res.data;
+  };
   const post = async (url, body, cfg) => (await auth.post(url, body, cfg)).data;
   const patch = async (url, body, cfg) => (await auth.patch(url, body, cfg)).data;
   return {
@@ -212,10 +205,9 @@ function playtomic(opts) {
       tokenStore.set("auth", opts.email, null);
     }
   };
-}
+};
 
-// src/client/playtomicChat.ts
-import { AxiosError } from "axios";
+// src/client/chatClient.ts
 import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
@@ -224,7 +216,7 @@ import {
   inMemoryPersistence
 } from "firebase/auth";
 import { getDatabase } from "firebase/database";
-var playtomicChat = (api) => {
+var createChatClient = (httpClient) => {
   const app = getApps().length ? getApps()[0] : initializeApp({
     apiKey: "AIzaSyAU3tWfb04J6AyouierS5NI0mkc_Xbwi40",
     projectId: "fir-playtomic",
@@ -236,20 +228,12 @@ var playtomicChat = (api) => {
   const database = getDatabase(app);
   let initialized = null;
   const getChatCustomToken = async () => {
-    try {
-      const data = await api.post("/v1/chats/tokens", {
-        user_id: "me"
-      });
-      if (!data?.token)
-        throw new Error("no chat token");
-      return data.token;
-    } catch (e) {
-      if (e instanceof AxiosError) {
-        console.error(e.request);
-      }
-      console.error(`failed to get custom chat token ${e.message}`);
-      throw "";
-    }
+    const data = await httpClient.post("/v1/chats/tokens", {
+      user_id: "me"
+    });
+    if (!data?.token)
+      throw new Error("no chat token");
+    return data.token;
   };
   const ensureSignedIn = async () => {
     if (auth.currentUser)
@@ -270,45 +254,170 @@ var playtomicChat = (api) => {
     }
     await initialized;
   };
-  return { ensureSignedIn, auth, database };
+  return { ...httpClient, ensureSignedIn, auth, database };
+};
+
+// src/client/index.ts
+var playtomic = (opts) => {
+  const httpClient = createHttpClient(opts);
+  const client = createChatClient(httpClient);
+  return client;
 };
 
 // src/methods/chat.ts
 import { push, ref, serverTimestamp, set } from "firebase/database";
-var sendMessage = async (threadId, text, client) => {
-  await client.ensureSignedIn();
-  const uid = client.auth.currentUser?.uid;
-  if (!uid)
-    throw new Error("no authorized user");
-  const messagesRef = ref(client.database, `chat/messages/${threadId}`);
-  const newMessageRef = push(messagesRef);
-  const message = {
-    data: { text, type: "text" },
-    date: serverTimestamp(),
-    user_id: uid
-  };
-  await set(newMessageRef, message);
-  if (!newMessageRef.key)
-    throw new Error("failed to get message id");
-  return newMessageRef.key;
+var getUserThread = async (client, userId) => {
+  try {
+    const { thread_id } = await client.post(
+      `/v1/chats`,
+      {
+        user_id: "me",
+        type: "USER",
+        object_id: userId
+      }
+    );
+    return thread_id;
+  } catch (e) {
+    throw new Error(`failed to get thread from user ${userId}: `);
+  }
+};
+var getMatchThread = async (client, matchId) => {
+  try {
+    const { thread_id } = await client.post(
+      `/v1/chats`,
+      {
+        user_id: "me",
+        type: "MATCH",
+        object_id: matchId
+      }
+    );
+    return thread_id;
+  } catch (e) {
+    throw new Error(`failed to get thread from user ${matchId}: `);
+  }
+};
+var sendMessage = async (client, text, threadId) => {
+  try {
+    await client.ensureSignedIn();
+    const uid = client.auth.currentUser?.uid;
+    if (!uid)
+      throw new Error("no authorized user");
+    const messagesRef = ref(client.database, `chat/messages/${threadId}`);
+    const newMessageRef = push(messagesRef);
+    const message = {
+      data: { text, type: "text" },
+      date: serverTimestamp(),
+      user_id: uid
+    };
+    await set(newMessageRef, message);
+    if (!newMessageRef.key)
+      throw new Error("failed to get message id");
+    return newMessageRef.key;
+  } catch (e) {
+    throw new Error(
+      `failed to send message to thread ${threadId}: ${e.message}`
+    );
+  }
 };
 
-// src/index.ts
-configDotenv();
-var main = async () => {
-  const params = {
-    email: process.env.EMAIL,
-    password: process.env.PASSWORD
-  };
-  const http = playtomic(params);
-  const rtdb = playtomicChat(http);
-  const threadId = "u:10902581:5564611";
-  await sendMessage(threadId, "hello", rtdb);
+// src/methods/class.ts
+var getClasses = async (client, opts) => {
+  try {
+    const classes = await client.get(`/v1/classes`, {
+      params: {
+        ...opts?.tenantId && { tenant_id: opts.tenantId },
+        ...opts?.from && { start_date_from: opts.from },
+        ...opts?.until && { start_date_to: opts.until }
+      }
+    });
+    return classes;
+  } catch (e) {
+    throw new Error(`failed to get classes: ${e}`);
+  }
 };
-if (__require.main === module) {
-  main();
+var getClassById = async (client, classId) => {
+  try {
+    const classes = await client.get(`/v1/classes/${classId}`);
+    return classes;
+  } catch (e) {
+    throw new Error(`failed to get class ${classId}: ${e}`);
+  }
+};
+
+// src/methods/tenant.ts
+var getTenants = async (client, opts) => {
+  try {
+    const tenants = await client.get(`/v1/tenants`, {
+      params: {
+        ...opts?.coordinates && {
+          coordinate: `${opts.coordinates.lat},${opts.coordinates.lon}`
+        },
+        ...opts?.radius && { radius: opts.radius }
+      }
+    });
+    return tenants;
+  } catch (e) {
+    throw new Error(`failed to get tenants: ${e}`);
+  }
+};
+var getTenantById = async (client, tenantId) => {
+  try {
+    const tenant = await client.get(`/v1/tenants/${tenantId}`);
+    return tenant;
+  } catch (e) {
+    throw new Error(`failed to get tenant ${tenantId}: ${e}`);
+  }
+};
+
+// src/methods/tournament.ts
+var getTournaments = async (client, opts) => {
+  try {
+    const tournaments = await client.get(`/v1/tournaments`, {
+      params: {
+        ...opts?.tenantId && { tenant_id: opts.tenantId },
+        ...opts?.from && { start_date_from: opts.from },
+        ...opts?.until && { start_date_to: opts.until }
+      }
+    });
+    return tournaments;
+  } catch (e) {
+    throw new Error(`failed to get classes: ${e}`);
+  }
+};
+var getTournamentById = async (client, tournamentId) => {
+  try {
+    const classes = await client.get(`/v1/tournamets/${tournamentId}`);
+    return classes;
+  } catch (e) {
+    throw new Error(`failed to get tournament ${tournamentId}: ${e}`);
+  }
+};
+
+// src/methods/users.ts
+async function getMe(client) {
+  const user = await client.get(`/v2/users/me`);
+  if (!user)
+    throw new Error("failed to get me");
+  return user;
+}
+async function getUser(client, id) {
+  const user = await client.get(`/v2/users/${id}`);
+  if (!user)
+    return null;
+  return user;
 }
 export {
-  main
+  getClassById,
+  getClasses,
+  getMatchThread,
+  getMe,
+  getTenantById,
+  getTenants,
+  getTournamentById,
+  getTournaments,
+  getUser,
+  getUserThread,
+  playtomic,
+  sendMessage
 };
 //# sourceMappingURL=index.js.map

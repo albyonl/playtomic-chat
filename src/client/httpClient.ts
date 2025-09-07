@@ -1,17 +1,17 @@
-import axios from "axios";
+import axios, { AxiosRequestConfig } from "axios";
 
-import { TokenStore } from "@/lib/token-store";
-import type { Playtomic } from "@/types/clients.types";
+import { TokenStore } from "@/lib/token-store/index.js";
+import type {
+  PlaytomicClientOpts,
+  PlaytomicHttpClient,
+} from "@/types/client.types.js";
 
-import { suffixZ } from "@/utils/iso";
+import { suffixZ } from "@/utils/iso.js";
 
-export function playtomic(opts: {
-  baseURL?: string;
-  email: string;
-  password: string;
-}): Playtomic {
-
-  if(!opts.email || !opts.password) throw new Error("missing params");
+export const createHttpClient = (
+  opts: PlaytomicClientOpts
+): PlaytomicHttpClient => {
+  if (!opts.email || !opts.password) throw new Error("missing params");
 
   const baseURL = opts.baseURL ?? "https://api.playtomic.io";
   const headers = {};
@@ -74,13 +74,16 @@ export function playtomic(opts: {
     return cfg;
   });
 
-  const get = async <T>(url: string, cfg?: any) =>
-    (await auth.get<T>(url, cfg)).data;
+  const get = async <T>(url: string, cfg?: AxiosRequestConfig) => {
+    const res = await auth.get<T>(url, cfg);
+    console.log(res.config.params); // safer and consistent
+    return res.data;
+  };
 
-  const post = async <T>(url: string, body?: any, cfg?: any) =>
+  const post = async <T>(url: string, body?: any, cfg?: AxiosRequestConfig) =>
     (await auth.post<T>(url, body, cfg)).data;
-  
-  const patch = async <T>(url: string, body?: any, cfg?: any) =>
+
+  const patch = async <T>(url: string, body?: any, cfg?: AxiosRequestConfig) =>
     (await auth.patch<T>(url, body, cfg)).data;
 
   return {
@@ -92,4 +95,4 @@ export function playtomic(opts: {
       tokenStore.set("auth", opts.email, null as any);
     },
   };
-}
+};

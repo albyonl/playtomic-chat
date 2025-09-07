@@ -1,29 +1,16 @@
-import { configDotenv } from "dotenv";
+export { playtomic } from '@/client/index.js';
 
-import { getUser } from "./methods/users";
+export * from "@/methods/chat.js"
+export * from "@/methods/class.js"
+export * from "@/methods/tenant.js"
+export * from "@/methods/tournament.js"
+export * from "@/methods/users.js"
 
-import { playtomic } from "./client/playtomic";
-import { playtomicChat } from "./client/playtomicChat";
-import { sendMessage } from "./methods/chat";
-
-configDotenv();
-
-export const main = async () => {
-
-  const params = {
-    email: process.env.EMAIL!,
-    password: process.env.PASSWORD!,
-  };
-
-  const http = playtomic(params);
-  const rtdb = playtomicChat(http);
-
-  const threadId = "u:10902581:5564611";
-
-  await sendMessage(threadId, "hello", rtdb);
-
-};
-
-if (require.main === module) {
-  main();
-}
+export type * from "@/types/class.types.js"
+export type * from "@/types/tournament.types.js"
+export type * from "@/types/user.types.js"
+export type * from "@/types/me.types.js"
+export type * from "@/types/registration.types.js"
+export type * from "@/types/address.types.js"
+export type * from "@/types/resource.types.js"
+export type * from "@/types/client.types.js"

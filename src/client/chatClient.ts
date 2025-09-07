@@ -1,5 +1,8 @@
-import { Chat, Playtomic } from "@/types/clients.types";
-import { AxiosError } from "axios";
+import {
+  Playtomic,
+  PlaytomicHttpClient,
+} from "@/types/client.types.js";
+
 import { initializeApp, getApps } from "firebase/app";
 
 import {
@@ -11,7 +14,10 @@ import {
 
 import { getDatabase } from "firebase/database";
 
-export const playtomicChat = (api: Playtomic): Chat => {
+export const createChatClient = (
+  httpClient: PlaytomicHttpClient
+): Playtomic => {
+
   const app = getApps().length
     ? getApps()[0]
     : initializeApp({
@@ -31,7 +37,7 @@ export const playtomicChat = (api: Playtomic): Chat => {
    * gets the custom token required to auth with rtdb
    */
   const getChatCustomToken = async (): Promise<string> => {
-    const data = await api.post<{ token: string }>("/v1/chats/tokens", {
+    const data = await httpClient.post<{ token: string }>("/v1/chats/tokens", {
       user_id: "me",
     });
     if (!data?.token) throw new Error("no chat token");
@@ -61,5 +67,5 @@ export const playtomicChat = (api: Playtomic): Chat => {
     await initialized;
   };
 
-  return { ensureSignedIn, auth, database };
+  return { ...httpClient, ensureSignedIn, auth, database };
 };
