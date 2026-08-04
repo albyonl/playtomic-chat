@@ -1,8 +1,24 @@
 {
   "name": "playtomic",
   "version": "0.1.0",
+  "description": "Unofficial Playtomic client for Node.js, with support for sending user and match chat messages.",
   "private": true,
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/albyonl/playtomic-node.git"
+  },
+  "bugs": {
+    "url": "https://github.com/albyonl/playtomic-node/issues"
+  },
+  "homepage": "https://github.com/albyonl/playtomic-node#readme",
+  "keywords": [
+    "playtomic",
+    "chat",
+    "padel",
+    "typescript",
+    "nodejs"
+  ],
   "files": ["dist"],
   "exports": {
     ".": {
