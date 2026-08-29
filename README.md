@@ -120,4 +120,4 @@ npm run build
 
 The build outputs CommonJS, ESM, type declarations, and source maps to `dist/`.
 
-If Playtomic changes an endpoint, please open an issue with the failing method and the response you received. Remove account details, access tokens, user IDs, and message contents before posting logs.
+I am not going to maintain this if it breaks.
